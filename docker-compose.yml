@@ -1,0 +1,93 @@
+version: '3.5'
+services:
+    backend-monolithic:
+        container_name: edunext_backend
+        build:
+            context: ./edunext_backend
+            dockerfile: Dockerfile
+        command: >
+            sh -c "
+                npx adonis serve --dev
+            "
+        ports:
+            - 3333:3333
+        volumes:
+            - C:\Users\pedro\.aws:/home/node/.aws
+            - ./edunext_backend:/home/node/app
+        env_file:
+            - ./edunext_backend/.env
+        environment:
+            - DB_HOST=host.docker.internal
+            - ENV_SILENT=true
+        healthcheck:
+            test: ['CMD-SHELL', 'curl -f http://localhost:3333 || exit 1']
+            interval: 30s
+            timeout: 30s
+            retries: 5
+            start_period: 1m
+    reporting-service:
+        container_name: edunext-service-callback
+        build:
+            context: ./edunext-service-callback
+            dockerfile: Dockerfile
+        command: >
+            sh -c "
+                while ! curl -sSf http://backend-monolithic:3333 -o /dev/null; do sleep 10; done &&
+                npm run start:dev
+            "
+        volumes:
+            - ./edunext-service-callback:/home/node/app
+        env_file:
+            - ./edunext-service-callback/.env
+        environment:
+            - DB_HOST=host.docker.internal
+        depends_on:
+            backend-monolithic:
+                condition: service_healthy
+    api-gateway:
+        container_name: edunext-api-gateway
+        build:
+            context: ./edunext-api-gateway
+            dockerfile: Dockerfile
+        command: >
+            sh -c "
+                while ! curl -sSf http://backend-monolithic:3333 -o /dev/null; do sleep 10; done &&
+                npm run start:dev
+            "
+        ports:
+            - 3000:3000
+        volumes:
+            - ./edunext-api-gateway:/home/node/app
+        env_file:
+            - ./edunext-api-gateway/.env
+        environment:
+            - DB_HOST=host.docker.internal
+        healthcheck:
+            test: ['CMD-SHELL', 'curl -f http://localhost:3000/api/v2/ || exit 1']
+            interval: 1m30s
+            timeout: 30s
+            retries: 5
+            start_period: 1m30s
+        depends_on:
+            backend-monolithic:
+                condition: service_healthy
+    backend-microservice:
+        container_name: edunext-backend-service
+        build:
+            context: ./edunext-backend-service
+            dockerfile: Dockerfile
+        volumes:
+            - C:\Users\pedro\.aws:/home/node/.aws
+            - ./edunext-backend-service:/home/node/app
+        env_file:
+            - ./edunext-backend-service/.env
+        environment:
+            - DB_HOST=host.docker.internal
+        depends_on:
+            api-gateway:
+                condition: service_healthy
+        command: >
+            sh -c "
+                while ! curl -sSf http://api-gateway:3000/api/v2 -o /dev/null; do sleep 10; done &&
+                npm run start:dev
+            "
